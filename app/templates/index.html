@@ -117,9 +117,16 @@
             <div class="card p-6 lg:col-span-2">
                 <div class="flex justify-between items-center mb-4">
                     <h2 class="text-xl font-semibold">News Summary</h2>
-                    <button id="aiSummaryBtn" class="btn bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700">
-                        <i class="fas fa-sync-alt mr-2"></i>Generate
-                    </button>
+                    <div class="flex gap-4">
+                        <input type="text" id="searchInput" placeholder="Search news topics..." 
+                               class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        <button id="searchBtn" class="btn bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600">
+                            <i class="fas fa-search mr-2"></i>Search
+                        </button>
+                        <button id="aiSummaryBtn" class="btn bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700">
+                            <i class="fas fa-sync-alt mr-2"></i>Generate
+                        </button>
+                    </div>
                 </div>
                 
                 <!-- Loading Spinner -->
@@ -350,7 +357,6 @@
         editSettingsBtn.addEventListener('click', () => {
             settingsModal.classList.remove('hidden');
             settingsModal.classList.add('flex');
-            setTimeout(() => settingsModal.classList.add('active'), 10);
         });
 
         closeSettingsBtn.addEventListener('click', () => {
@@ -523,6 +529,64 @@
                 loadingSpinner.classList.add('hidden');
             } finally {
                 aiSummaryBtn.disabled = false;
+            }
+        });
+
+        // Add search functionality
+        const searchInput = document.getElementById('searchInput');
+        const searchBtn = document.getElementById('searchBtn');
+
+        async function performSearch() {
+            try {
+                // Reset state and show loading
+                errorMessage.classList.add('hidden');
+                summaryContent.classList.add('hidden');
+                loadingSpinner.classList.remove('hidden');
+
+                const query = searchInput.value;
+                const response = await fetch(`/api/ai_summary?query=${encodeURIComponent(query)}`);
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Failed to fetch news');
+                }
+
+                // Update news container
+                const newsContainer = document.getElementById('newsContainer');
+                newsContainer.innerHTML = '';
+
+                data.news_items.forEach(item => {
+                    const template = document.getElementById('newsItemTemplate');
+                    const newsItem = template.content.cloneNode(true);
+                    
+                    newsItem.querySelector('.news-title').textContent = item.title;
+                    newsItem.querySelector('.news-summary').textContent = item.body;
+                    newsItem.querySelector('.news-date').textContent = item.date;
+                    newsItem.querySelector('.news-link').href = item.link;
+                    
+                    newsContainer.appendChild(newsItem);
+                });
+
+                // Show content and hide loading
+                loadingSpinner.classList.add('hidden');
+                summaryContent.classList.remove('hidden');
+
+                // If there's a summary, update it
+                if (data.summary) {
+                    document.getElementById('summaryText').textContent = data.summary;
+                }
+            } catch (error) {
+                loadingSpinner.classList.add('hidden');
+                errorMessage.classList.remove('hidden');
+                errorMessage.textContent = error.message;
+            }
+        }
+
+        // Add event listeners for search
+        searchBtn.addEventListener('click', performSearch);
+        searchInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                performSearch();
             }
         });
 

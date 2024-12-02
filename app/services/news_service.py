@@ -1,4 +1,4 @@
-from duckduckgo_search import DDGS
+from duckduckgo_search import AsyncDDGS
 import logging
 from datetime import datetime
 from typing import List, Dict, Optional
@@ -11,9 +11,8 @@ logger = logging.getLogger(__name__)
 class NewsService:
     def __init__(self, settings_service):
         self.settings_service = settings_service
-        self.ddgs = DDGS()
         self.last_search_time = 0
-        self.min_search_interval = 2  # minimum seconds between searches
+        self.min_search_interval = 1  # minimum seconds between searches
 
     async def fetch_news(self, query: Optional[str] = None) -> List[Dict]:
         """Fetch news articles based on search query."""
@@ -30,13 +29,20 @@ class NewsService:
             search_query = query if query else "latest breaking news today"
             
             # Get news from DuckDuckGo
-            results = list(self.ddgs.news(
-                search_query,
-                max_results=5,
-                region="wt-wt",
-                safesearch="off",
-                timelimit="d"
-            ))
+            async with AsyncDDGS() as ddgs:
+                results = []
+                async for r in ddgs.news(
+                    search_query,
+                    max_results=10,  # Increased max results
+                    region="wt-wt",
+                    safesearch="off",
+                    timelimit="d"
+                ):
+                    results.append(r)
+
+            if not results:
+                logger.warning(f"No results found for query: {search_query}")
+                return []
 
             # Format the results
             articles = []
@@ -46,8 +52,16 @@ class NewsService:
                     published = result.get('date')
                     if published:
                         try:
-                            date_obj = datetime.strptime(published, '%Y-%m-%d %H:%M:%S')
-                            formatted_date = date_obj.strftime("%Y-%m-%d %H:%M")
+                            # Try to parse the date in different formats
+                            for fmt in ['%Y-%m-%d %H:%M:%S', '%Y-%m-%d']:
+                                try:
+                                    date_obj = datetime.strptime(published, fmt)
+                                    formatted_date = date_obj.strftime("%Y-%m-%d %H:%M")
+                                    break
+                                except ValueError:
+                                    continue
+                            else:
+                                formatted_date = published
                         except:
                             formatted_date = published
                     else:
@@ -63,6 +77,10 @@ class NewsService:
                 except Exception as e:
                     logger.error(f"Error parsing article: {str(e)}")
                     continue
+
+            if not articles:
+                logger.warning("No articles could be parsed from the results")
+                return []
 
             return articles
 
