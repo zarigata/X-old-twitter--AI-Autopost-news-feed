@@ -186,13 +186,32 @@ async def get_ai_summary(query: str = ''):
 
 Please provide a concise summary of these articles, highlighting the key points and trends."""
 
-        # Get AI summary
-        response = await ai_service.get_completion(prompt)
-        
-        return JSONResponse({
-            "summary": response,
-            "news_items": news_items
-        })
+        # Get AI summary using settings
+        ollama_host = settings_service.get_setting('ollama_host', 'http://host.docker.internal:11434')
+        model_name = settings_service.get_setting('model_name', 'llama2')
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                f"{ollama_host}/api/generate",
+                json={
+                    "model": model_name,
+                    "prompt": prompt,
+                    "stream": False
+                }
+            )
+            
+            if response.status_code != 200:
+                logger.error(f"Ollama API error: {response.text}")
+                return JSONResponse({"error": "Failed to generate summary"}, status_code=500)
+
+            result = response.json()
+            summary = result.get("response", "").strip()
+
+            return JSONResponse({
+                "summary": summary,
+                "news_items": news_items
+            })
+
     except Exception as e:
         logger.error(f"Error getting AI summary: {str(e)}")
         return JSONResponse({"error": str(e)}, status_code=500)
@@ -201,13 +220,16 @@ Please provide a concise summary of these articles, highlighting the key points 
 async def get_available_models():
     """Get available models from Ollama server."""
     try:
-        models = await settings_service.fetch_available_models()
-        return {"models": models}
+        ollama_host = settings_service.get_setting('ollama_host', 'http://host.docker.internal:11434')
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"{ollama_host}/api/tags")
+            if response.status_code == 200:
+                models = response.json().get("models", [])
+                return {"models": [model["name"] for model in models]}
+            return {"error": f"Failed to fetch models: {response.text}"}
     except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content={"error": f"Failed to fetch models: {str(e)}"}
-        )
+        logger.error(f"Error fetching models: {str(e)}")
+        return {"error": str(e)}
 
 @app.websocket("/api/terminal_updates")
 async def terminal_updates(websocket: WebSocket):

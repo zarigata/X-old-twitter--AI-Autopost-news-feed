@@ -1,59 +1,70 @@
-import httpx
+from duckduckgo_search import DDGS
 import logging
 from datetime import datetime
 from typing import List, Dict, Optional
-from urllib.parse import quote
+import asyncio
+import time
+import httpx
 
 logger = logging.getLogger(__name__)
 
 class NewsService:
     def __init__(self, settings_service):
         self.settings_service = settings_service
-        self.api_key = "2c0e2b4b4fbe4c8e9c8e2b4b4fbe4c8e"  # Free API key for testing
-        self.base_url = "https://newsapi.org/v2"
+        self.ddgs = DDGS()
+        self.last_search_time = 0
+        self.min_search_interval = 2  # minimum seconds between searches
 
     async def fetch_news(self, query: Optional[str] = None) -> List[Dict]:
         """Fetch news articles based on search query."""
         try:
-            # Build the API URL based on query
-            if query:
-                url = f"{self.base_url}/everything?q={quote(query)}&language=en&sortBy=publishedAt&pageSize=5"
-            else:
-                url = f"{self.base_url}/top-headlines?country=us&pageSize=5"
+            # Rate limiting
+            current_time = time.time()
+            time_since_last_search = current_time - self.last_search_time
+            if time_since_last_search < self.min_search_interval:
+                await asyncio.sleep(self.min_search_interval - time_since_last_search)
+            
+            self.last_search_time = time.time()
 
-            headers = {
-                "X-Api-Key": self.api_key,
-                "User-Agent": "Docker-Manager-News-App/1.0"
-            }
+            # Build search query
+            search_query = query if query else "latest breaking news today"
+            
+            # Get news from DuckDuckGo
+            results = list(self.ddgs.news(
+                search_query,
+                max_results=5,
+                region="wt-wt",
+                safesearch="off",
+                timelimit="d"
+            ))
 
-            async with httpx.AsyncClient() as client:
-                response = await client.get(url, headers=headers)
-                response.raise_for_status()
-                data = response.json()
+            # Format the results
+            articles = []
+            for result in results:
+                try:
+                    # Parse and format the date
+                    published = result.get('date')
+                    if published:
+                        try:
+                            date_obj = datetime.strptime(published, '%Y-%m-%d %H:%M:%S')
+                            formatted_date = date_obj.strftime("%Y-%m-%d %H:%M")
+                        except:
+                            formatted_date = published
+                    else:
+                        formatted_date = datetime.now().strftime("%Y-%m-%d %H:%M")
 
-                if data.get("status") != "ok":
-                    logger.error(f"NewsAPI error: {data.get('message', 'Unknown error')}")
-                    return []
+                    articles.append({
+                        "title": result["title"],
+                        "body": result["body"],
+                        "link": result["link"],
+                        "date": formatted_date,
+                        "source": result.get("source", "")
+                    })
+                except Exception as e:
+                    logger.error(f"Error parsing article: {str(e)}")
+                    continue
 
-                articles = []
-                for article in data.get("articles", []):
-                    try:
-                        # Format the date
-                        published_date = datetime.fromisoformat(article["publishedAt"].replace("Z", "+00:00"))
-                        formatted_date = published_date.strftime("%Y-%m-%d %H:%M")
-
-                        articles.append({
-                            "title": article["title"],
-                            "body": article["description"] or "",
-                            "link": article["url"],
-                            "date": formatted_date,
-                            "source": article["source"]["name"]
-                        })
-                    except Exception as e:
-                        logger.error(f"Error parsing article: {str(e)}")
-                        continue
-
-                return articles
+            return articles
 
         except Exception as e:
             logger.error(f"Error fetching news: {str(e)}")
