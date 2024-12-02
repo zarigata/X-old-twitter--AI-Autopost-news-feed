@@ -1,12 +1,12 @@
 {
     "ollama_host": "http://localhost:11434",
-    "model_name": "llama3.2:latest",
-    "max_news_items": 5,
+    "model_name": "llama2",
+    "max_news_items": 10,
     "twitter": {
-        "api_key": "",
-        "api_secret": "",
-        "access_token": "",
-        "access_token_secret": "",
-        "bearer_token": ""
+        "api_key": "YOUR_TWITTER_API_KEY",
+        "api_secret": "YOUR_TWITTER_API_SECRET",
+        "access_token": "YOUR_TWITTER_ACCESS_TOKEN",
+        "access_token_secret": "YOUR_TWITTER_ACCESS_TOKEN_SECRET",
+        "bearer_token": "YOUR_TWITTER_BEARER_TOKEN"
     }
 }

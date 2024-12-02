@@ -1,10 +1,11 @@
-from duckduckgo_search import AsyncDDGS
+import httpx
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 import asyncio
 import time
-import httpx
+import json
+from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
 
@@ -12,7 +13,92 @@ class NewsService:
     def __init__(self, settings_service):
         self.settings_service = settings_service
         self.last_search_time = 0
-        self.min_search_interval = 1  # minimum seconds between searches
+        self.min_search_interval = 2  # minimum seconds between searches
+        self.session = None
+        self.headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+
+    async def get_session(self):
+        if self.session is None:
+            self.session = httpx.AsyncClient(headers=self.headers, follow_redirects=True)
+        return self.session
+
+    async def fetch_news_from_newsdata(self, query: str) -> List[Dict]:
+        """Fetch news from NewsData.io API"""
+        try:
+            api_key = "pub_35192abcad89186b7dd5dad4faa389516e123"  # Free API key
+            base_url = "https://newsdata.io/api/1/news"
+            
+            params = {
+                'apikey': api_key,
+                'q': query,
+                'language': 'en',
+                'size': 10
+            }
+            
+            session = await self.get_session()
+            response = await session.get(base_url, params=params)
+            data = response.json()
+            
+            if response.status_code != 200:
+                logger.error(f"NewsData API error: {data.get('message', 'Unknown error')}")
+                return []
+            
+            articles = []
+            for result in data.get('results', []):
+                try:
+                    published_date = datetime.fromisoformat(result['pubDate'].replace('Z', '+00:00'))
+                    articles.append({
+                        "title": result['title'],
+                        "body": result['description'] or result['title'],
+                        "link": result['link'],
+                        "date": published_date.strftime("%Y-%m-%d %H:%M"),
+                        "source": result['source_id']
+                    })
+                except Exception as e:
+                    logger.error(f"Error parsing NewsData article: {str(e)}")
+                    continue
+                    
+            return articles
+        except Exception as e:
+            logger.error(f"Error fetching from NewsData: {str(e)}")
+            return []
+
+    async def fetch_news_from_gnews(self, query: str) -> List[Dict]:
+        """Fetch news from Gnews RSS feed"""
+        try:
+            base_url = "https://news.google.com/rss/search"
+            params = {'q': query, 'hl': 'en-US', 'gl': 'US', 'ceid': 'US:en'}
+            
+            session = await self.get_session()
+            response = await session.get(base_url, params=params)
+            
+            if response.status_code != 200:
+                return []
+            
+            soup = BeautifulSoup(response.text, 'xml')
+            items = soup.find_all('item')
+            
+            articles = []
+            for item in items[:10]:  # Limit to 10 articles
+                try:
+                    pub_date = datetime.strptime(item.pubDate.text, '%a, %d %b %Y %H:%M:%S %Z')
+                    articles.append({
+                        "title": item.title.text,
+                        "body": item.description.text,
+                        "link": item.link.text,
+                        "date": pub_date.strftime("%Y-%m-%d %H:%M"),
+                        "source": "Google News"
+                    })
+                except Exception as e:
+                    logger.error(f"Error parsing GNews article: {str(e)}")
+                    continue
+            
+            return articles
+        except Exception as e:
+            logger.error(f"Error fetching from GNews: {str(e)}")
+            return []
 
     async def fetch_news(self, query: Optional[str] = None) -> List[Dict]:
         """Fetch news articles based on search query."""
@@ -28,58 +114,18 @@ class NewsService:
             # Build search query
             search_query = query if query else "latest breaking news today"
             
-            # Get news from DuckDuckGo
-            async with AsyncDDGS() as ddgs:
-                results = []
-                async for r in ddgs.news(
-                    search_query,
-                    max_results=10,  # Increased max results
-                    region="wt-wt",
-                    safesearch="off",
-                    timelimit="d"
-                ):
-                    results.append(r)
-
-            if not results:
-                logger.warning(f"No results found for query: {search_query}")
-                return []
-
-            # Format the results
+            # Try different news sources in order
             articles = []
-            for result in results:
-                try:
-                    # Parse and format the date
-                    published = result.get('date')
-                    if published:
-                        try:
-                            # Try to parse the date in different formats
-                            for fmt in ['%Y-%m-%d %H:%M:%S', '%Y-%m-%d']:
-                                try:
-                                    date_obj = datetime.strptime(published, fmt)
-                                    formatted_date = date_obj.strftime("%Y-%m-%d %H:%M")
-                                    break
-                                except ValueError:
-                                    continue
-                            else:
-                                formatted_date = published
-                        except:
-                            formatted_date = published
-                    else:
-                        formatted_date = datetime.now().strftime("%Y-%m-%d %H:%M")
-
-                    articles.append({
-                        "title": result["title"],
-                        "body": result["body"],
-                        "link": result["link"],
-                        "date": formatted_date,
-                        "source": result.get("source", "")
-                    })
-                except Exception as e:
-                    logger.error(f"Error parsing article: {str(e)}")
-                    continue
-
+            
+            # Try NewsData.io first
+            articles = await self.fetch_news_from_newsdata(search_query)
+            
+            # If NewsData fails, try GNews
             if not articles:
-                logger.warning("No articles could be parsed from the results")
+                articles = await self.fetch_news_from_gnews(search_query)
+            
+            if not articles:
+                logger.warning(f"No articles found for query: {search_query}")
                 return []
 
             return articles
@@ -92,89 +138,6 @@ class NewsService:
         """Legacy method - now redirects to fetch_news"""
         return await self.fetch_news(query)
 
-    async def get_combined_response(self, query):
-        search_results = []
-        try:
-            # If it's a summary request and we have cached news, use that directly
-            if "Based on these recent news items" in query and self.news_cache:
-                search_content = query  # Use the formatted news context directly
-            else:
-                # Perform internet search
-                search_results = await self.search_internet(query)
-                if not search_results:
-                    return "Unable to fetch news at this time. Please try again later.", []
-                search_content = "\n".join([result['body'] for result in search_results])
-
-            # Integrate search results into the AI response
-            response = ollama.chat(
-                model=self.current_model,
-                messages=[
-                    {
-                        'role': 'system',
-                        'content': 'You are a professional news analyst. Provide clear, concise, and accurate summaries.'
-                    },
-                    {
-                        'role': 'user',
-                        'content': search_content
-                    }
-                ]
-            )
-            return response['message']['content'], search_results
-
-        except Exception as e:
-            print(f"Error in get_combined_response: {e}")
-            return "Error processing request. Please try again later.", search_results
-
-    async def get_ollama_models(self):
-        try:
-            response = httpx.get(f"{self.ollama_host}/api/tags")
-            if response.status_code == 200:
-                models = response.json().get('models', [])
-                return [model['name'] for model in models]
-            return []
-        except Exception as e:
-            print(f"Error getting Ollama models: {e}")
-            return []
-
-    async def get_latest_news(self):
-        """Get the latest news from cache or fetch new ones."""
-        if not self.news_cache or (
-                datetime.now() - self.last_fetch > self.fetch_interval):
-            await self.fetch_news()
-        return self.news_cache
-
-    async def get_ai_summary(self, news_items):
-        """Generate an AI summary of the provided news items."""
-        try:
-            # Prepare context for AI
-            news_context = "\n\n".join([
-                f"Title: {item['title']}\n"
-                f"Excerpt: {item['excerpt']}"
-                for item in news_items[:5]  # Take latest 5 news items
-            ])
-            
-            # Generate summary using Ollama
-            headers = {'Content-Type': 'application/json'}
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(
-                    f"{self.ollama_host}/api/generate",
-                    json={
-                        "model": self.current_model,
-                        "prompt": f"You are a professional news analyst. Based on these recent news items, "
-                                f"provide a concise summary of the current major events and their significance "
-                                f"in about 2-3 paragraphs:\n\n{news_context}",
-                        "stream": False
-                    },
-                    headers=headers
-                )
-                
-                if response.status_code == 200:
-                    result = response.json()
-                    return result.get("response", "").strip()
-                else:
-                    logger.error(f"Ollama API error: Status {response.status_code}, Response: {response.text}")
-                    raise Exception(f"Error from Ollama API: {response.text}")
-                    
-        except Exception as e:
-            logger.error(f"Error generating AI summary: {str(e)}")
-            raise Exception(f"Failed to generate AI summary: {str(e)}")
+    async def __del__(self):
+        if self.session:
+            await self.session.aclose()

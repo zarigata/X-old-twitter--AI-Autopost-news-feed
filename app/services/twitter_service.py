@@ -50,39 +50,69 @@ class TwitterService:
 
     def is_configured(self) -> bool:
         """Check if Twitter API is properly configured."""
-        return self.client is not None and self.api is not None
-
-    async def post_tweet(self, text: str) -> Dict:
-        """Post a tweet with the given text."""
-        if not self.is_configured():
-            return {"error": "Twitter API not configured"}
-
-        try:
-            # Create tweet
-            response = self.client.create_tweet(text=text)
-            tweet_id = response.data['id']
-            tweet_url = f"https://twitter.com/user/status/{tweet_id}"
-            
-            return {
-                "success": True,
-                "tweet_id": tweet_id,
-                "tweet_url": tweet_url
-            }
-        except Exception as e:
-            error_msg = f"Error posting tweet: {str(e)}"
-            logger.error(error_msg)
-            return {"error": error_msg}
+        settings = self.settings_service.get_settings()
+        twitter_settings = settings.get('twitter', {})
+        required_keys = ['api_key', 'api_secret', 'access_token', 'access_token_secret', 'bearer_token']
+        return all(twitter_settings.get(key) for key in required_keys)
 
     def validate_credentials(self) -> Dict:
         """Validate Twitter API credentials."""
-        try:
-            if not self.is_configured():
-                return {"error": "Twitter API not configured"}
+        if not self.is_configured():
+            return {
+                "status": "error",
+                "message": "Twitter credentials not configured. Please update settings with your Twitter API credentials."
+            }
 
-            # Try to verify credentials
-            self.api.verify_credentials()
-            return {"success": True, "message": "Twitter credentials are valid"}
+        try:
+            if self.client and self.api:
+                # Test the API by getting the authenticated user
+                user = self.client.get_me()
+                if user and user.data:
+                    return {
+                        "status": "success",
+                        "message": f"Connected as @{user.data.username}"
+                    }
+            return {
+                "status": "error",
+                "message": "Failed to authenticate with Twitter. Please check your credentials."
+            }
         except Exception as e:
-            error_msg = f"Invalid Twitter credentials: {str(e)}"
-            logger.error(error_msg)
-            return {"error": error_msg}
+            logger.error(f"Error validating Twitter credentials: {str(e)}")
+            return {
+                "status": "error",
+                "message": f"Twitter API error: {str(e)}"
+            }
+
+    async def post_tweet(self, text: str) -> Dict:
+        """Post a tweet."""
+        if not self.is_configured():
+            return {
+                "status": "error",
+                "message": "Twitter credentials not configured. Please update settings with your Twitter API credentials."
+            }
+
+        if not self.client:
+            return {
+                "status": "error",
+                "message": "Twitter client not initialized. Please check your credentials."
+            }
+
+        try:
+            response = self.client.create_tweet(text=text)
+            if response and response.data:
+                tweet_id = response.data['id']
+                return {
+                    "status": "success",
+                    "message": f"Tweet posted successfully",
+                    "tweet_url": f"https://twitter.com/user/status/{tweet_id}"
+                }
+            return {
+                "status": "error",
+                "message": "Failed to post tweet. Please try again."
+            }
+        except Exception as e:
+            logger.error(f"Error posting tweet: {str(e)}")
+            return {
+                "status": "error",
+                "message": f"Twitter API error: {str(e)}"
+            }
