@@ -1,0 +1,32 @@
+/* Additional custom styles beyond Tailwind */
+.engagement-card {
+    transition: all 0.3s ease;
+}
+
+.engagement-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+.comment-box {
+    max-height: 400px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+}
+
+.comment-box::-webkit-scrollbar {
+    width: 6px;
+}
+
+.comment-box::-webkit-scrollbar-track {
+    background: #f1f1f1;
+}
+
+.comment-box::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 3px;
+}
+
+.comment-box::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}

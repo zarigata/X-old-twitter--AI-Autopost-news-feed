@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./app:/app
+      - ./app/config:/app/config
+      - ./requirements.txt:/app/requirements.txt
+    environment:
+      - PYTHONUNBUFFERED=1
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - app_network
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+networks:
+  app_network:
+    driver: bridge

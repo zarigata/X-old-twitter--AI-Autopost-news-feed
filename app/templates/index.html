@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI News Bot Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        
+        body {
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            background-color: #f3f4f6;
+            color: #1f2937;
+        }
+
+        .gradient-text {
+            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .card {
+            background: white;
+            border-radius: 1rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+
+        .btn {
+            transition: all 0.2s;
+        }
+
+        .btn:hover {
+            transform: translateY(-1px);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .spinner {
+            border: 4px solid rgba(59, 130, 246, 0.1);
+            border-left-color: #3b82f6;
+            border-radius: 50%;
+            width: 2rem;
+            height: 2rem;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .news-item {
+            border-left: 4px solid #3b82f6;
+            transition: all 0.2s;
+        }
+
+        .news-item:hover {
+            border-left-color: #8b5cf6;
+            background-color: #f9fafb;
+        }
+
+        .settings-modal {
+            background-color: rgba(0, 0, 0, 0.5);
+            transition: opacity 0.2s;
+        }
+
+        .modal-content {
+            transform: scale(0.95);
+            transition: transform 0.2s;
+        }
+
+        .settings-modal.active .modal-content {
+            transform: scale(1);
+        }
+    </style>
+</head>
+<body class="min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <!-- Header -->
+        <header class="mb-8">
+            <h1 class="text-4xl font-bold gradient-text mb-2">AI News Bot</h1>
+            <p class="text-gray-600">Stay informed with AI-powered news summaries</p>
+        </header>
+
+        <!-- Main Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Settings Card -->
+            <div class="card p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-xl font-semibold">Settings</h2>
+                    <button id="editSettingsBtn" class="btn bg-blue-100 text-blue-600 px-4 py-2 rounded-lg hover:bg-blue-200">
+                        <i class="fas fa-cog mr-2"></i>Edit
+                    </button>
+                </div>
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-600 mb-1">Ollama Host</label>
+                        <div class="text-sm bg-gray-50 p-2 rounded-lg" id="currentHost"></div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-600 mb-1">Model</label>
+                        <div class="text-sm bg-gray-50 p-2 rounded-lg" id="currentModel"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- News Summary Card -->
+            <div class="card p-6 lg:col-span-2">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-xl font-semibold">News Summary</h2>
+                    <button id="aiSummaryBtn" class="btn bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700">
+                        <i class="fas fa-sync-alt mr-2"></i>Generate
+                    </button>
+                </div>
+                
+                <!-- Loading Spinner -->
+                <div id="loadingSpinner" class="hidden flex justify-center items-center py-12">
+                    <div class="spinner"></div>
+                </div>
+
+                <!-- Summary Content -->
+                <div id="summaryContent" class="hidden">
+                    <div class="bg-blue-50 p-4 rounded-lg mb-6">
+                        <h3 class="text-lg font-medium text-blue-800 mb-2">AI Analysis</h3>
+                        <p id="summaryText" class="text-blue-900 whitespace-pre-wrap"></p>
+                        
+                        <!-- Tweet Button -->
+                        <div class="mt-4 flex justify-end">
+                            <button id="tweetBtn" class="btn bg-[#1DA1F2] text-white px-4 py-2 rounded-lg hover:bg-[#1a8cd8]">
+                                <i class="fab fa-twitter mr-2"></i>Share on Twitter
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="newsItems" class="space-y-4">
+                        <!-- News items will be populated here -->
+                    </div>
+                </div>
+
+                <!-- Error Message -->
+                <div id="errorMessage" class="hidden bg-red-50 text-red-800 p-4 rounded-lg"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settingsModal" class="settings-modal fixed inset-0 hidden items-center justify-center z-50">
+        <div class="modal-content bg-white rounded-xl p-6 max-w-lg w-full mx-4">
+            <div class="flex justify-between items-center mb-6">
+                <h3 class="text-xl font-semibold">Edit Settings</h3>
+                <button id="closeSettingsBtn" class="text-gray-400 hover:text-gray-600">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <form id="settingsForm" class="space-y-6">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Ollama Host</label>
+                    <input type="text" id="ollamaHost" name="ollama_host" 
+                           class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Model</label>
+                    <div class="flex gap-2">
+                        <select id="modelName" name="model_name"
+                                class="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                            <!-- Models will be populated here -->
+                        </select>
+                        <button type="button" id="refreshModelsBtn" 
+                                class="btn bg-gray-100 text-gray-600 px-3 py-2 rounded-lg hover:bg-gray-200">
+                            <i class="fas fa-sync-alt"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Max News Items</label>
+                    <input type="number" id="maxNewsItems" name="max_news_items" min="1" max="10"
+                           class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                </div>
+
+                <!-- Twitter Settings -->
+                <div class="border-t pt-4 mt-4">
+                    <h3 class="text-lg font-medium text-gray-900 mb-4">Twitter Integration</h3>
+                    
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">API Key</label>
+                            <input type="password" id="twitterApiKey" name="twitter.api_key" 
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">API Secret</label>
+                            <input type="password" id="twitterApiSecret" name="twitter.api_secret"
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Access Token</label>
+                            <input type="password" id="twitterAccessToken" name="twitter.access_token"
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Access Token Secret</label>
+                            <input type="password" id="twitterAccessTokenSecret" name="twitter.access_token_secret"
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Bearer Token</label>
+                            <input type="password" id="twitterBearerToken" name="twitter.bearer_token"
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        </div>
+
+                        <div>
+                            <button type="button" id="validateTwitterBtn" 
+                                    class="w-full btn bg-blue-100 text-blue-600 py-2 rounded-lg hover:bg-blue-200">
+                                Validate Twitter Credentials
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="pt-4">
+                    <button type="submit" class="w-full btn bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700">
+                        Save Changes
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // Elements
+        const settingsModal = document.getElementById('settingsModal');
+        const editSettingsBtn = document.getElementById('editSettingsBtn');
+        const closeSettingsBtn = document.getElementById('closeSettingsBtn');
+        const settingsForm = document.getElementById('settingsForm');
+        const currentHost = document.getElementById('currentHost');
+        const currentModel = document.getElementById('currentModel');
+        const aiSummaryBtn = document.getElementById('aiSummaryBtn');
+        const loadingSpinner = document.getElementById('loadingSpinner');
+        const summaryContent = document.getElementById('summaryContent');
+        const summaryText = document.getElementById('summaryText');
+        const newsItems = document.getElementById('newsItems');
+        const errorMessage = document.getElementById('errorMessage');
+        const refreshModelsBtn = document.getElementById('refreshModelsBtn');
+        const validateTwitterBtn = document.getElementById('validateTwitterBtn');
+        const tweetBtn = document.getElementById('tweetBtn');
+        
+        // Fetch available models
+        async function fetchModels() {
+            try {
+                refreshModelsBtn.disabled = true;
+                refreshModelsBtn.querySelector('i').classList.add('fa-spin');
+                
+                const response = await fetch('/api/models');
+                const data = await response.json();
+                
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+                
+                // Update model select
+                const modelSelect = document.getElementById('modelName');
+                const currentModel = modelSelect.value;
+                
+                modelSelect.innerHTML = data.models.map(model => 
+                    `<option value="${model}" ${model === currentModel ? 'selected' : ''}>${model}</option>`
+                ).join('');
+            } catch (error) {
+                console.error('Error fetching models:', error);
+                alert('Error fetching models. Please try again.');
+            } finally {
+                refreshModelsBtn.disabled = false;
+                refreshModelsBtn.querySelector('i').classList.remove('fa-spin');
+            }
+        }
+
+        // Add refresh models button handler
+        refreshModelsBtn.addEventListener('click', fetchModels);
+        
+        // Load current settings
+        async function loadSettings() {
+            try {
+                const response = await fetch('/api/settings');
+                const settings = await response.json();
+                
+                // Update display
+                currentHost.textContent = settings.ollama_host;
+                currentModel.textContent = settings.model_name;
+                
+                // Update form
+                document.getElementById('ollamaHost').value = settings.ollama_host;
+                document.getElementById('modelName').value = settings.model_name;
+                document.getElementById('maxNewsItems').value = settings.max_news_items;
+
+                // Update Twitter settings
+                const twitter = settings.twitter || {};
+                document.getElementById('twitterApiKey').value = twitter.api_key || '';
+                document.getElementById('twitterApiSecret').value = twitter.api_secret || '';
+                document.getElementById('twitterAccessToken').value = twitter.access_token || '';
+                document.getElementById('twitterAccessTokenSecret').value = twitter.access_token_secret || '';
+                document.getElementById('twitterBearerToken').value = twitter.bearer_token || '';
+
+                // Fetch available models
+                await fetchModels();
+            } catch (error) {
+                console.error('Error loading settings:', error);
+            }
+        }
+
+        // Settings modal handlers
+        editSettingsBtn.addEventListener('click', () => {
+            settingsModal.classList.remove('hidden');
+            settingsModal.classList.add('flex');
+            setTimeout(() => settingsModal.classList.add('active'), 10);
+        });
+
+        closeSettingsBtn.addEventListener('click', () => {
+            settingsModal.classList.remove('active');
+            setTimeout(() => {
+                settingsModal.classList.add('hidden');
+                settingsModal.classList.remove('flex');
+            }, 200);
+        });
+
+        // Close modal when clicking outside
+        settingsModal.addEventListener('click', (e) => {
+            if (e.target === settingsModal) {
+                closeSettingsBtn.click();
+            }
+        });
+
+        // Settings form handler
+        settingsForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const formData = {
+                ollama_host: document.getElementById('ollamaHost').value,
+                model_name: document.getElementById('modelName').value,
+                max_news_items: parseInt(document.getElementById('maxNewsItems').value),
+                twitter: {
+                    api_key: document.getElementById('twitterApiKey').value,
+                    api_secret: document.getElementById('twitterApiSecret').value,
+                    access_token: document.getElementById('twitterAccessToken').value,
+                    access_token_secret: document.getElementById('twitterAccessTokenSecret').value,
+                    bearer_token: document.getElementById('twitterBearerToken').value
+                }
+            };
+
+            try {
+                const response = await fetch('/api/settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(formData)
+                });
+
+                if (response.ok) {
+                    await loadSettings();
+                    closeSettingsBtn.click();
+                } else {
+                    throw new Error('Failed to save settings');
+                }
+            } catch (error) {
+                console.error('Error saving settings:', error);
+                alert('Error saving settings. Please try again.');
+            }
+        });
+
+        // Validate Twitter credentials
+        validateTwitterBtn.addEventListener('click', async () => {
+            try {
+                validateTwitterBtn.disabled = true;
+                validateTwitterBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Validating...';
+                
+                const response = await fetch('/api/twitter/validate', {
+                    method: 'POST'
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    alert('Twitter credentials are valid!');
+                } else {
+                    throw new Error(data.error || 'Failed to validate credentials');
+                }
+            } catch (error) {
+                console.error('Error validating Twitter credentials:', error);
+                alert(error.message);
+            } finally {
+                validateTwitterBtn.disabled = false;
+                validateTwitterBtn.innerHTML = 'Validate Twitter Credentials';
+            }
+        });
+
+        // Tweet button handler
+        tweetBtn.addEventListener('click', async () => {
+            try {
+                const summary = summaryText.textContent;
+                if (!summary) {
+                    alert('Please generate a summary first');
+                    return;
+                }
+
+                tweetBtn.disabled = true;
+                tweetBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Posting...';
+
+                const response = await fetch('/api/twitter/tweet', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: summary })
+                });
+
+                const data = await response.json();
+                
+                if (data.success) {
+                    alert('Tweet posted successfully! Click OK to view.');
+                    window.open(data.tweet_url, '_blank');
+                } else {
+                    throw new Error(data.error || 'Failed to post tweet');
+                }
+            } catch (error) {
+                console.error('Error posting tweet:', error);
+                alert(error.message);
+            } finally {
+                tweetBtn.disabled = false;
+                tweetBtn.innerHTML = '<i class="fab fa-twitter mr-2"></i>Share on Twitter';
+            }
+        });
+
+        // AI Summary Button Handler
+        aiSummaryBtn.addEventListener('click', async () => {
+            try {
+                // Reset state and show loading
+                errorMessage.classList.add('hidden');
+                summaryContent.classList.add('hidden');
+                loadingSpinner.classList.remove('hidden');
+                aiSummaryBtn.disabled = true;
+
+                // Fetch AI summary
+                const response = await fetch('/api/ai_summary');
+                const data = await response.json();
+
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
+                // Update summary
+                summaryText.textContent = data.summary;
+                
+                // Update news items
+                newsItems.innerHTML = data.news_items.map(item => `
+                    <div class="news-item pl-4 py-3">
+                        <h4 class="font-medium text-gray-900 mb-1">${item.title}</h4>
+                        <p class="text-sm text-gray-600">${item.body}</p>
+                        <a href="${item.link}" target="_blank" class="text-sm text-blue-600 hover:text-blue-800 mt-2 inline-block">
+                            Read more <i class="fas fa-external-link-alt ml-1"></i>
+                        </a>
+                    </div>
+                `).join('');
+
+                // Show content
+                loadingSpinner.classList.add('hidden');
+                summaryContent.classList.remove('hidden');
+            } catch (error) {
+                console.error('Error:', error);
+                errorMessage.textContent = error.message;
+                errorMessage.classList.remove('hidden');
+                loadingSpinner.classList.add('hidden');
+            } finally {
+                aiSummaryBtn.disabled = false;
+            }
+        });
+
+        // Initial load
+        loadSettings();
+    </script>
+</body>
+</html>
