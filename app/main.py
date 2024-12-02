@@ -24,7 +24,7 @@ templates = Jinja2Templates(directory="/app/templates")
 
 # Services initialization
 settings_service = SettingsService()
-news_service = NewsService()
+news_service = NewsService(settings_service)
 ai_service = AIService()
 twitter_service = TwitterService(settings_service)
 
@@ -149,96 +149,53 @@ async def validate_twitter_credentials():
     return twitter_service.validate_credentials()
 
 @app.post("/api/twitter/tweet")
-async def post_tweet(tweet: dict):
-    """Post a tweet with the AI-generated summary."""
-    if not tweet.get("text"):
-        return JSONResponse(
-            status_code=400,
-            content={"error": "Tweet text is required"}
-        )
-    
-    return await twitter_service.post_tweet(tweet["text"])
+async def post_tweet(request: Request):
+    try:
+        data = await request.json()
+        text = data.get("text")
+        if not text:
+            return JSONResponse({"error": "Tweet text is required"}, status_code=400)
+        
+        result = await twitter_service.post_tweet(text)
+        return JSONResponse(result)
+    except Exception as e:
+        logger.error(f"Error posting tweet: {str(e)}")
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 @app.get("/api/ai_summary")
-async def get_ai_summary():
+async def get_ai_summary(query: str = ''):
+    """Get AI-generated summary of news articles."""
     try:
-        logger.info("Fetching latest news for AI summary")
+        # Fetch news based on query
+        news_items = await news_service.fetch_news(query)
         
-        # Get settings
-        ollama_host = settings_service.get_setting('ollama_host', 'http://host.docker.internal:11434')
-        model_name = settings_service.get_setting('model_name', 'llama3.2')
-        max_news = settings_service.get_setting('max_news_items', 5)
+        if not news_items:
+            return JSONResponse({
+                "error": f"No news found for query: {query}" if query else "No news found"
+            }, status_code=404)
+
+        # Generate prompt for AI
+        news_text = "\n\n".join([
+            f"Title: {item['title']}\n{item['body']}"
+            for item in news_items
+        ])
         
-        # Directly fetch news using DuckDuckGo
-        try:
-            from duckduckgo_search import DDGS
-            ddgs = DDGS()
-            
-            # Search for recent news
-            query = "latest breaking news today"
-            results = list(ddgs.news(
-                query,
-                max_results=max_news,
-                region="wt-wt",
-                safesearch="off",
-                timelimit="d"
-            ))
-            
-            if not results:
-                logger.warning("No news items found from DuckDuckGo")
-                return {"error": "No news items available"}
+        prompt = f"""Here are some news articles{' about ' + query if query else ''}:
 
-            # Format news items for summary
-            news_text = "\n\n".join([
-                f"Title: {item['title']}\n"
-                f"Content: {item['body']}"
-                for item in results if item.get('title') and item.get('body')
-            ])
+{news_text}
 
-            logger.info(f"Connecting to Ollama at {ollama_host}")
-            try:
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    logger.info(f"Sending request to Ollama API using model {model_name}")
-                    response = await client.post(
-                        f"{ollama_host}/api/generate",
-                        json={
-                            "model": model_name,
-                            "prompt": f"As a professional news analyst, provide a clear and concise summary of these recent news items in 2-3 paragraphs:\n\n{news_text}",
-                            "stream": False
-                        },
-                        headers={'Content-Type': 'application/json'}
-                    )
-                    
-                    if response.status_code == 200:
-                        result = response.json()
-                        summary = result.get("response", "").strip()
-                        logger.info("Successfully generated AI summary")
-                        return {
-                            "summary": summary,
-                            "news_items": results[:max_news]
-                        }
-                    else:
-                        error_msg = f"Ollama API error: {response.text}"
-                        logger.error(error_msg)
-                        return {"error": error_msg}
-            except httpx.TimeoutException:
-                error_msg = "Timeout while connecting to Ollama API"
-                logger.error(error_msg)
-                return {"error": error_msg}
-            except Exception as e:
-                error_msg = f"Error generating summary: {str(e)}"
-                logger.error(error_msg, exc_info=True)
-                return {"error": error_msg}
-                
-        except Exception as e:
-            error_msg = f"Error fetching news: {str(e)}"
-            logger.error(error_msg, exc_info=True)
-            return {"error": error_msg}
-                
+Please provide a concise summary of these articles, highlighting the key points and trends."""
+
+        # Get AI summary
+        response = await ai_service.get_completion(prompt)
+        
+        return JSONResponse({
+            "summary": response,
+            "news_items": news_items
+        })
     except Exception as e:
-        error_msg = f"Unexpected error in AI summary endpoint: {str(e)}"
-        logger.error(error_msg, exc_info=True)
-        return {"error": error_msg}
+        logger.error(f"Error getting AI summary: {str(e)}")
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 @app.get("/api/models")
 async def get_available_models():

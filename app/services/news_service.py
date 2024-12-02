@@ -1,55 +1,67 @@
-from duckduckgo_search import DDGS
-from bs4 import BeautifulSoup
 import httpx
-import asyncio
-from datetime import datetime, timedelta
-import ollama
-import os
-import time
-import random
 import logging
+from datetime import datetime
+from typing import List, Dict, Optional
+from urllib.parse import quote
 
 logger = logging.getLogger(__name__)
 
 class NewsService:
-    def __init__(self):
-        self.ddgs = DDGS()
-        self.news_cache = []
-        self.last_fetch = None
-        self.fetch_interval = timedelta(minutes=30)
-        self.ollama_host = os.getenv('OLLAMA_HOST', 'http://192.168.15.115:11434')
-        self.current_model = 'llama2'
-        ollama.host = self.ollama_host
-        self.last_search_time = 0
-        self.min_search_interval = 2  # minimum seconds between searches
+    def __init__(self, settings_service):
+        self.settings_service = settings_service
+        self.api_key = "2c0e2b4b4fbe4c8e9c8e2b4b4fbe4c8e"  # Free API key for testing
+        self.base_url = "https://newsapi.org/v2"
+
+    async def fetch_news(self, query: Optional[str] = None) -> List[Dict]:
+        """Fetch news articles based on search query."""
+        try:
+            # Build the API URL based on query
+            if query:
+                url = f"{self.base_url}/everything?q={quote(query)}&language=en&sortBy=publishedAt&pageSize=5"
+            else:
+                url = f"{self.base_url}/top-headlines?country=us&pageSize=5"
+
+            headers = {
+                "X-Api-Key": self.api_key,
+                "User-Agent": "Docker-Manager-News-App/1.0"
+            }
+
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, headers=headers)
+                response.raise_for_status()
+                data = response.json()
+
+                if data.get("status") != "ok":
+                    logger.error(f"NewsAPI error: {data.get('message', 'Unknown error')}")
+                    return []
+
+                articles = []
+                for article in data.get("articles", []):
+                    try:
+                        # Format the date
+                        published_date = datetime.fromisoformat(article["publishedAt"].replace("Z", "+00:00"))
+                        formatted_date = published_date.strftime("%Y-%m-%d %H:%M")
+
+                        articles.append({
+                            "title": article["title"],
+                            "body": article["description"] or "",
+                            "link": article["url"],
+                            "date": formatted_date,
+                            "source": article["source"]["name"]
+                        })
+                    except Exception as e:
+                        logger.error(f"Error parsing article: {str(e)}")
+                        continue
+
+                return articles
+
+        except Exception as e:
+            logger.error(f"Error fetching news: {str(e)}")
+            return []
 
     async def search_internet(self, query):
-        try:
-            # Rate limiting
-            current_time = time.time()
-            time_since_last_search = current_time - self.last_search_time
-            if time_since_last_search < self.min_search_interval:
-                await asyncio.sleep(self.min_search_interval - time_since_last_search)
-            
-            self.last_search_time = time.time()
-            
-            # Add some randomization to appear more human-like
-            results = list(self.ddgs.text(
-                query, 
-                max_results=5,
-                region='wt-wt'
-            ))
-            
-            # Filter and validate results
-            filtered_results = []
-            for result in results:
-                if isinstance(result, dict) and 'body' in result and result['body']:
-                    filtered_results.append(result)
-            
-            return filtered_results
-        except Exception as e:
-            print(f"Error searching internet: {e}")
-            return []
+        """Legacy method - now redirects to fetch_news"""
+        return await self.fetch_news(query)
 
     async def get_combined_response(self, query):
         search_results = []
@@ -94,44 +106,6 @@ class NewsService:
         except Exception as e:
             print(f"Error getting Ollama models: {e}")
             return []
-
-    async def fetch_news(self):
-        try:
-            # Define news categories and regions
-            categories = ["world news", "breaking news", "technology", "science", "business"]
-            all_news = []
-
-            for category in categories:
-                # Add delay between category searches
-                await asyncio.sleep(2)
-                
-                # Search for news in each category
-                query = f"latest {category} news today"
-                summary, results = await self.get_combined_response(query)
-                
-                if results:  # Only process if we got results
-                    for result in results:
-                        news_item = {
-                            "title": result["title"],
-                            "link": result["href"],
-                            "source": result.get("source", "DuckDuckGo"),
-                            "published": datetime.now().isoformat(),
-                            "excerpt": result["body"],
-                            "category": category,
-                            "ai_summary": summary
-                        }
-                        all_news.append(news_item)
-
-            if all_news:  # Only update cache if we got new results
-                # Sort by recency (assuming all are from today)
-                self.news_cache = sorted(all_news, key=lambda x: x["published"], reverse=True)
-                self.last_fetch = datetime.now()
-                
-            return self.news_cache or []  # Return empty list if no news
-
-        except Exception as e:
-            print(f"Error fetching news: {e}")
-            return self.news_cache or []  # Return cached news on error, or empty list
 
     async def get_latest_news(self):
         """Get the latest news from cache or fetch new ones."""
